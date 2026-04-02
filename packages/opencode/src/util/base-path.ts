@@ -74,6 +74,12 @@ export function rewriteJsForBasePath(js: string, basePath: string): string {
 
   result = result.replace(/function\(t\)\{return"\/"\+t\}/g, `function(t){return"${basePath}/"+t}`)
 
+  // SDK default client uses hardcoded localhost:4096 at module scope
+  result = result.replace(
+    /baseUrl:"http:\/\/localhost:4096"/g,
+    `baseUrl:location.origin+(window.__OPENCODE_BASE_PATH__||"")`,
+  )
+
   return result
 }
 
