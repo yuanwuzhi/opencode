@@ -7,12 +7,6 @@ export function normalizeBasePath(path?: string): string {
   return normalized
 }
 
-export function joinPath(basePath: string, ...segments: string[]): string {
-  const base = normalizeBasePath(basePath)
-  const path = segments.join("/").replace(/\/+/g, "/")
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`
-}
-
 export function generateBasePathScript(basePath: string): string {
   return `<script>
 window.__OPENCODE_BASE_PATH__="${basePath}";

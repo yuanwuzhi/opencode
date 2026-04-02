@@ -18,7 +18,8 @@ import { lazy } from "@/util/lazy"
 import { errorHandler } from "./middleware"
 import { InstanceRoutes } from "./instance"
 import { initProjectors } from "./projectors"
-import { normalizeBasePath, rewriteCssForBasePath, rewriteHtmlForBasePath, rewriteJsForBasePath } from "../util/base-path"
+import { normalizeBasePath, rewriteCssForBasePath, rewriteHtmlForBasePath, rewriteJsForBasePath, generateBasePathScript } from "../util/base-path"
+import { createHash } from "node:crypto"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -51,6 +52,14 @@ const MIME_TYPES: Record<string, string> = {
 function getMimeType(path: string): string {
   const ext = path.substring(path.lastIndexOf(".")).toLowerCase()
   return MIME_TYPES[ext] || "application/octet-stream"
+}
+
+function basePathCSP(basePath: string): string {
+  const scriptContent = generateBasePathScript(basePath)
+    .replace(/^<script>\n?/, "")
+    .replace(/<\/script>$/, "")
+  const hash = createHash("sha256").update(scriptContent).digest("base64")
+  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-${hash}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
 }
 
 initProjectors()
@@ -387,6 +396,7 @@ export namespace Server {
 
               if (contentType.includes("text/html")) {
                 const html = rewriteHtmlForBasePath(await file.text(), _basePath)
+                headers.set("Content-Security-Policy", basePathCSP(_basePath))
                 return new Response(html, { status: 200, headers })
               }
 
@@ -418,6 +428,7 @@ export namespace Server {
           const html = rewriteHtmlForBasePath(await response.text(), _basePath)
           const headers = new Headers(response.headers)
           headers.delete("content-length")
+          headers.set("Content-Security-Policy", basePathCSP(_basePath))
           return new Response(html, {
             status: response.status,
             statusText: response.statusText,
