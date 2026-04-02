@@ -1,8 +1,9 @@
 import { Log } from "../util/log"
 import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler } from "hono-openapi"
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
 import { compress } from "hono/compress"
 import { cors } from "hono/cors"
+import { proxy } from "hono/proxy"
 import { basicAuth } from "hono/basic-auth"
 import z from "zod"
 import { Auth } from "../auth"
@@ -17,6 +18,7 @@ import { lazy } from "@/util/lazy"
 import { errorHandler } from "./middleware"
 import { InstanceRoutes } from "./instance"
 import { initProjectors } from "./projectors"
+import { normalizeBasePath, rewriteCssForBasePath, rewriteHtmlForBasePath, rewriteJsForBasePath } from "../util/base-path"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -25,6 +27,9 @@ initProjectors()
 
 export namespace Server {
   const log = Log.create({ service: "server" })
+  let _url: URL | undefined
+  let _basePath = ""
+  let _corsWhitelist: string[] = []
 
   const zipped = compress()
 
@@ -35,6 +40,28 @@ export namespace Server {
   }
 
   export const Default = lazy(() => ControlPlaneRoutes())
+
+  const currentURL = () => {
+    const base = _url ?? new URL("http://localhost:4096")
+    return _basePath ? new URL(`${_basePath}/`, base) : base
+  }
+
+  const deprecatedUrl = new Proxy((() => currentURL()) as unknown as ((() => URL) & URL), {
+    apply() {
+      return currentURL()
+    },
+    get(_target, property, receiver) {
+      const value = Reflect.get(currentURL(), property, receiver)
+      return typeof value === "function" ? value.bind(currentURL()) : value
+    },
+  }) as unknown as ((() => URL) & URL)
+
+  /** @deprecated do not use this dumb shit */
+  export const url = deprecatedUrl
+
+  export function basePath(): string {
+    return _basePath
+  }
 
   export const ControlPlaneRoutes = (opts?: { cors?: string[] }): Hono => {
     const app = new Hono()
@@ -261,18 +288,113 @@ export namespace Server {
     return result
   }
 
-  /** @deprecated do not use this dumb shit */
-  export let url: URL
-
   export function listen(opts: {
     port: number
     hostname: string
     mdns?: boolean
     mdnsDomain?: string
     cors?: string[]
+    basePath?: string
   }) {
-    url = new URL(`http://${opts.hostname}:${opts.port}`)
-    const app = ControlPlaneRoutes({ cors: opts.cors })
+    _basePath = normalizeBasePath(opts.basePath)
+    _corsWhitelist = opts.cors ?? []
+
+    const mainApp = ControlPlaneRoutes({ cors: _corsWhitelist })
+    const baseApp = new Hono()
+
+    if (_basePath) {
+      const basePathHandler = async (c: Context) => {
+        let path = c.req.path
+        if (path.startsWith(_basePath)) {
+          path = path.slice(_basePath.length) || "/"
+        }
+
+        const url = new URL(c.req.url)
+        url.pathname = path
+
+        const rewrittenRequest = new Request(url, c.req.raw)
+        const isControlPlane =
+          path === "/doc" ||
+          path === "/log" ||
+          path.startsWith("/global") ||
+          path.startsWith("/auth/") ||
+          path.startsWith("/event") ||
+          path.startsWith("/session") ||
+          path.startsWith("/project") ||
+          path.startsWith("/pty") ||
+          path.startsWith("/config") ||
+          path.startsWith("/experimental") ||
+          path.startsWith("/permission") ||
+          path.startsWith("/question") ||
+          path.startsWith("/provider") ||
+          path.startsWith("/find") ||
+          path.startsWith("/file") ||
+          path.startsWith("/mcp") ||
+          path.startsWith("/tui") ||
+          path.startsWith("/path") ||
+          path.startsWith("/vcs") ||
+          path.startsWith("/command") ||
+          path.startsWith("/agent") ||
+          path.startsWith("/skill") ||
+          path.startsWith("/lsp") ||
+          path.startsWith("/formatter") ||
+          path.startsWith("/instance/")
+
+        if (isControlPlane) {
+          return mainApp.fetch(rewrittenRequest, c.env)
+        }
+
+        const response = await proxy(`https://app.opencode.ai${path}`, {
+          headers: {
+            ...Object.fromEntries(c.req.raw.headers),
+            host: "app.opencode.ai",
+          },
+        })
+
+        const contentType = response.headers.get("content-type") || ""
+
+        if (contentType.includes("text/html")) {
+          const html = rewriteHtmlForBasePath(await response.text(), _basePath)
+          const headers = new Headers(response.headers)
+          headers.delete("content-length")
+          return new Response(html, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          })
+        }
+
+        if (contentType.includes("javascript") || path.endsWith(".js")) {
+          const js = rewriteJsForBasePath(await response.text(), _basePath)
+          const headers = new Headers(response.headers)
+          headers.delete("content-length")
+          return new Response(js, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          })
+        }
+
+        if (contentType.includes("text/css") || path.endsWith(".css")) {
+          const css = rewriteCssForBasePath(await response.text(), _basePath)
+          const headers = new Headers(response.headers)
+          headers.delete("content-length")
+          return new Response(css, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          })
+        }
+
+        return response
+      }
+
+      baseApp.all(_basePath, basePathHandler)
+      baseApp.all(`${_basePath}/*`, basePathHandler)
+    }
+
+    const app = _basePath ? baseApp : mainApp
+
     const args = {
       hostname: opts.hostname,
       idleTimeout: 0,
@@ -288,6 +410,8 @@ export namespace Server {
     }
     const server = opts.port === 0 ? (tryServe(4096) ?? tryServe(0)) : tryServe(opts.port)
     if (!server) throw new Error(`Failed to start server on port ${opts.port}`)
+
+    _url = new URL(`http://${server.hostname}:${server.port}`)
 
     const shouldPublishMDNS =
       opts.mdns &&

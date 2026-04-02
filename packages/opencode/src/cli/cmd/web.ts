@@ -3,6 +3,7 @@ import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { Flag } from "../../flag/flag"
+import { normalizeBasePath } from "../../util/base-path"
 import open from "open"
 import { networkInterfaces } from "os"
 
@@ -38,13 +39,15 @@ export const WebCommand = cmd({
     }
     const opts = await resolveNetworkOptions(args)
     const server = Server.listen(opts)
+    const bp = normalizeBasePath(opts.basePath)
+    const suffix = bp ? `${bp}/` : ""
     UI.empty()
     UI.println(UI.logo("  "))
     UI.empty()
 
     if (opts.hostname === "0.0.0.0") {
       // Show localhost for local access
-      const localhostUrl = `http://localhost:${server.port}`
+      const localhostUrl = `http://localhost:${server.port}${suffix}`
       UI.println(UI.Style.TEXT_INFO_BOLD + "  Local access:      ", UI.Style.TEXT_NORMAL, localhostUrl)
 
       // Show network IPs for remote access
@@ -54,7 +57,7 @@ export const WebCommand = cmd({
           UI.println(
             UI.Style.TEXT_INFO_BOLD + "  Network access:    ",
             UI.Style.TEXT_NORMAL,
-            `http://${ip}:${server.port}`,
+            `http://${ip}:${server.port}${suffix}`,
           )
         }
       }
@@ -63,7 +66,7 @@ export const WebCommand = cmd({
         UI.println(
           UI.Style.TEXT_INFO_BOLD + "  mDNS:              ",
           UI.Style.TEXT_NORMAL,
-          `${opts.mdnsDomain}:${server.port}`,
+          `${opts.mdnsDomain}:${server.port}${suffix}`,
         )
       }
 
