@@ -269,6 +269,21 @@ function createGlobalSync() {
         vcsCache: cache,
         loadSessions,
         translate: language.t,
+        onProjectCreated: (project) => {
+          // Synchronously insert the new project into the global store so that
+          // reactive lookups (e.g. currentProject()) can find it immediately,
+          // without waiting for the SSE project.updated event to arrive.
+          const exists = globalStore.project.some((p) => p.id === project.id)
+          if (!exists) {
+            setProjects((draft) => {
+              // Insert in sorted order (same as event-reducer)
+              const idx = draft.findIndex((p) => p.id >= project.id)
+              if (idx === -1) draft.push(project)
+              else if (draft[idx]?.id === project.id) draft[idx] = { ...draft[idx], ...project }
+              else draft.splice(idx, 0, project)
+            })
+          }
+        },
       })
     })()
 

@@ -195,6 +195,7 @@ export async function bootstrapDirectory(input: {
   vcsCache: VcsCache
   loadSessions: (directory: string) => Promise<void> | void
   translate: (key: string, vars?: Record<string, string | number>) => string
+  onProjectCreated?: (project: Project) => void
   global: {
     config: Config
     path: Path
@@ -232,7 +233,11 @@ export async function bootstrapDirectory(input: {
     () =>
       seededProject
         ? Promise.resolve()
-        : retry(() => input.sdk.project.current()).then((x) => input.setStore("project", x.data!.id)),
+        : retry(() => input.sdk.project.current()).then((x) => {
+            const project = x.data!
+            input.setStore("project", project.id)
+            input.onProjectCreated?.(project)
+          }),
     () =>
       seededPath
         ? Promise.resolve()

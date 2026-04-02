@@ -1,4 +1,5 @@
 import z from "zod"
+import { createHash } from "node:crypto"
 import { and, Database, eq } from "../storage/db"
 import { ProjectTable } from "./project.sql"
 import { SessionTable } from "../session/session.sql"
@@ -143,6 +144,9 @@ export namespace Project {
 
       const fakeVcs = Info.shape.vcs.parse(Flag.OPENCODE_FAKE_VCS)
 
+      const dirId = (dir: string) =>
+        ProjectID.make("dir:" + createHash("sha256").update(dir).digest("hex").slice(0, 16))
+
       const resolveGitPath = (cwd: string, name: string) => {
         if (!name) return cwd
         name = name.replace(/[\r\n]+$/, "")
@@ -174,7 +178,7 @@ export namespace Project {
 
           if (!dotgit) {
             return {
-              id: ProjectID.global,
+              id: dirId(directory),
               worktree: directory,
               sandbox: directory,
               vcs: fakeVcs,

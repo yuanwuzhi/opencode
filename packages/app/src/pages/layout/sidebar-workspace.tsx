@@ -466,39 +466,56 @@ export const LocalWorkspace = (props: {
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const workspace = createMemo(() => {
+    if (!props.project?.worktree) return undefined
     const [store, setStore] = globalSync.child(props.project.worktree)
     return { store, setStore }
   })
-  const slug = createMemo(() => base64Encode(props.project.worktree))
-  const sessions = createMemo(() => sortedRootSessions(workspace().store, props.sortNow()))
-  const children = createMemo(() => childMapByParent(workspace().store.session))
-  const booted = createMemo((prev) => prev || workspace().store.status === "complete", false)
+  const slug = createMemo(() => props.project?.worktree ? base64Encode(props.project.worktree) : "")
+  const sessions = createMemo(() => {
+    const ws = workspace()
+    return ws ? sortedRootSessions(ws.store, props.sortNow()) : []
+  })
+  const children = createMemo(() => {
+    const ws = workspace()
+    return ws ? childMapByParent(ws.store.session) : new Map()
+  })
+  const booted = createMemo((prev) => {
+    const ws = workspace()
+    return prev || (ws ? ws.store.status === "complete" : false)
+  }, false)
   const count = createMemo(() => sessions()?.length ?? 0)
   const loading = createMemo(() => !booted() && count() === 0)
-  const hasMore = createMemo(() => workspace().store.sessionTotal > count())
+  const hasMore = createMemo(() => {
+    const ws = workspace()
+    return ws ? ws.store.sessionTotal > count() : false
+  })
   const loadMore = async () => {
-    workspace().setStore("limit", (limit) => (limit ?? 0) + 5)
+    const ws = workspace()
+    if (!ws || !props.project?.worktree) return
+    ws.setStore("limit", (limit) => (limit ?? 0) + 5)
     await globalSync.project.loadSessions(props.project.worktree)
   }
 
   return (
-    <div
-      ref={(el) => props.ctx.setScrollContainerRef(el, props.mobile)}
-      class="size-full flex flex-col py-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
-    >
-      <WorkspaceSessionList
-        slug={slug}
-        mobile={props.mobile}
-        popover={props.popover}
-        ctx={props.ctx}
-        showNew={() => false}
-        loading={loading}
-        sessions={sessions}
-        children={children}
-        hasMore={hasMore}
-        loadMore={loadMore}
-        language={language}
-      />
-    </div>
+    <Show when={workspace()}>
+      <div
+        ref={(el) => props.ctx.setScrollContainerRef(el, props.mobile)}
+        class="size-full flex flex-col py-2 overflow-y-auto no-scrollbar [overflow-anchor:none]"
+      >
+        <WorkspaceSessionList
+          slug={slug}
+          mobile={props.mobile}
+          popover={props.popover}
+          ctx={props.ctx}
+          showNew={() => false}
+          loading={loading}
+          sessions={sessions}
+          children={children}
+          hasMore={hasMore}
+          loadMore={loadMore}
+          language={language}
+        />
+      </div>
+    </Show>
   )
 }

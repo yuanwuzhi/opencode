@@ -355,7 +355,7 @@ export namespace File {
 
       const scan = Effect.fn("File.scan")(function* () {
         if (Instance.directory === path.parse(Instance.directory).root) return
-        const isGlobalHome = Instance.directory === Global.Path.home && Instance.project.id === "global"
+        const isGlobalHome = Instance.directory === Global.Path.home && Instance.project.vcs !== "git"
         const next: Entry = { files: [], dirs: [] }
 
         if (isGlobalHome) {
