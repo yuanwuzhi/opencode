@@ -101,7 +101,7 @@ const ProjectTile = (props: {
         type="button"
         aria-label={displayName(props.project)}
         data-action="project-switch"
-        data-project={base64Encode(props.project.worktree)}
+        data-project={base64Encode(props.project?.worktree ?? "")}
         classList={{
           "flex items-center justify-center size-10 p-1 rounded-lg overflow-hidden transition-colors cursor-default": true,
           "bg-transparent border-2 border-icon-strong-base hover:bg-surface-base-hover": props.selected(),
@@ -124,17 +124,17 @@ const ProjectTile = (props: {
         onMouseEnter={(event: MouseEvent) => {
           if (!props.overlay()) return
           if (props.suppressHover()) return
-          props.onProjectMouseEnter(props.project.worktree, event)
+          if (props.project?.worktree) props.onProjectMouseEnter(props.project.worktree, event)
         }}
         onMouseLeave={() => {
           if (props.suppressHover()) props.setSuppressHover(false)
           if (!props.overlay()) return
-          props.onProjectMouseLeave(props.project.worktree)
+          if (props.project?.worktree) props.onProjectMouseLeave(props.project.worktree)
         }}
         onFocus={() => {
           if (!props.overlay()) return
           if (props.suppressHover()) return
-          props.onProjectFocus(props.project.worktree)
+          if (props.project?.worktree) props.onProjectFocus(props.project.worktree)
         }}
         onClick={() => {
           props.setOpen(false)
@@ -142,7 +142,7 @@ const ProjectTile = (props: {
             layout.sidebar.toggle()
             return
           }
-          props.navigateToProject(props.project.worktree)
+          if (props.project?.worktree) props.navigateToProject(props.project.worktree)
         }}
         onBlur={() => props.setOpen(false)}
       >
@@ -155,7 +155,7 @@ const ProjectTile = (props: {
           </ContextMenu.Item>
           <ContextMenu.Item
             data-action="project-workspaces-toggle"
-            data-project={base64Encode(props.project.worktree)}
+            data-project={base64Encode(props.project?.worktree ?? "")}
             disabled={props.project.vcs !== "git" && !props.workspacesEnabled(props.project)}
             onSelect={() => props.toggleProjectWorkspaces(props.project)}
           >
@@ -167,7 +167,7 @@ const ProjectTile = (props: {
           </ContextMenu.Item>
           <ContextMenu.Item
             data-action="project-clear-notifications"
-            data-project={base64Encode(props.project.worktree)}
+            data-project={base64Encode(props.project?.worktree ?? "")}
             disabled={unseenCount() === 0}
             onSelect={clear}
           >
@@ -176,8 +176,8 @@ const ProjectTile = (props: {
           <ContextMenu.Separator />
           <ContextMenu.Item
             data-action="project-close-menu"
-            data-project={base64Encode(props.project.worktree)}
-            onSelect={() => props.closeProject(props.project.worktree)}
+            data-project={base64Encode(props.project?.worktree ?? "")}
+            onSelect={() => { if (props.project?.worktree) props.closeProject(props.project.worktree) }}
           >
             <ContextMenu.ItemLabel>{props.language.t("common.close")}</ContextMenu.ItemLabel>
           </ContextMenu.Item>
@@ -216,7 +216,7 @@ const ProjectPreviewPanel = (props: {
                 {...props.ctx.sessionProps}
                 session={session}
                 list={props.projectSessions()}
-                slug={base64Encode(props.project.worktree)}
+                slug={base64Encode(props.project?.worktree ?? "")}
                 dense
                 mobile={props.mobile}
                 popover={false}
@@ -264,9 +264,9 @@ const ProjectPreviewPanel = (props: {
         class="flex w-full text-left justify-start text-text-base px-2 hover:bg-transparent active:bg-transparent"
         onClick={() => {
           props.ctx.openSidebar()
-          props.ctx.onHoverOpenChanged(props.project.worktree, false)
+          if (props.project?.worktree) props.ctx.onHoverOpenChanged(props.project.worktree, false)
           if (props.selected()) return
-          props.ctx.navigateToProject(props.project.worktree)
+          if (props.project?.worktree) props.ctx.navigateToProject(props.project.worktree)
         }}
       >
         {props.language.t("sidebar.project.viewAllSessions")}
@@ -283,8 +283,8 @@ export const SortableProject = (props: {
 }): JSX.Element => {
   const globalSync = useGlobalSync()
   const language = useLanguage()
-  const sortable = createSortable(props.project.worktree)
-  const selected = createMemo(() => props.ctx.currentProject()?.worktree === props.project.worktree)
+  const sortable = createSortable(props.project?.worktree ?? "")
+  const selected = createMemo(() => props.ctx.currentProject()?.worktree === props.project?.worktree)
   const workspaces = createMemo(() => props.ctx.workspaceIds(props.project).slice(0, 2))
   const workspaceEnabled = createMemo(() => props.ctx.workspacesEnabled(props.project))
   const dirs = createMemo(() => props.ctx.workspaceIds(props.project))
@@ -293,7 +293,7 @@ export const SortableProject = (props: {
     suppressHover: false,
   })
 
-  const isHoverProject = () => props.ctx.hoverProject() === props.project.worktree
+  const isHoverProject = () => props.ctx.hoverProject() === props.project?.worktree
   const preview = createMemo(() => !props.mobile && props.ctx.sidebarOpened())
   const overlay = createMemo(() => !props.mobile && !props.ctx.sidebarOpened())
   const active = createMemo(() => state.menu || (preview() ? isHoverProject() : overlay() && isHoverProject()))
@@ -303,12 +303,12 @@ export const SortableProject = (props: {
   const label = (directory: string) => {
     const [data] = globalSync.child(directory, { bootstrap: false })
     const kind =
-      directory === props.project.worktree ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
-    const name = props.ctx.workspaceLabel(directory, data.vcs?.branch, props.project.id)
+      directory === props.project?.worktree ? language.t("workspace.type.local") : language.t("workspace.type.sandbox")
+    const name = props.ctx.workspaceLabel(directory, data.vcs?.branch, props.project?.id)
     return `${kind} : ${name}`
   }
 
-  const projectStore = createMemo(() => globalSync.child(props.project.worktree, { bootstrap: false })[0])
+  const projectStore = createMemo(() => globalSync.child(props.project?.worktree ?? "", { bootstrap: false })[0])
   const projectSessions = createMemo(() => sortedRootSessions(projectStore(), props.sortNow()))
   const projectChildren = createMemo(() => childMapByParent(projectStore().session))
   const workspaceSessions = (directory: string) => {
@@ -339,7 +339,7 @@ export const SortableProject = (props: {
       workspacesEnabled={props.ctx.workspacesEnabled}
       closeProject={props.ctx.closeProject}
       setMenu={(value) => setState("menu", value)}
-      setOpen={(value) => props.ctx.onHoverOpenChanged(props.project.worktree, value)}
+      setOpen={(value) => { if (props.project?.worktree) props.ctx.onHoverOpenChanged(props.project.worktree, value) }}
       setSuppressHover={(value) => setState("suppressHover", value)}
       language={language}
     />
@@ -359,7 +359,7 @@ export const SortableProject = (props: {
           onOpenChange={(value) => {
             if (state.menu) return
             if (value && state.suppressHover) return
-            props.ctx.onHoverOpenChanged(props.project.worktree, value)
+            if (props.project?.worktree) props.ctx.onHoverOpenChanged(props.project.worktree, value)
             if (value) props.ctx.setHoverSession(undefined)
           }}
         >

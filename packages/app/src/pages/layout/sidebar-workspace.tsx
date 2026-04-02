@@ -322,12 +322,12 @@ export const SortableWorkspace = (props: {
   const slug = createMemo(() => base64Encode(props.directory))
   const sessions = createMemo(() => sortedRootSessions(workspaceStore, props.sortNow()))
   const children = createMemo(() => childMapByParent(workspaceStore.session))
-  const local = createMemo(() => props.directory === props.project.worktree)
+  const local = createMemo(() => props.directory === props.project?.worktree)
   const active = createMemo(() => workspaceKey(props.ctx.currentDir()) === workspaceKey(props.directory))
   const workspaceValue = createMemo(() => {
     const branch = workspaceStore.vcs?.branch
     const name = branch ?? getFilename(props.directory)
-    return props.ctx.workspaceName(props.directory, props.project.id, branch) ?? name
+    return props.ctx.workspaceName(props.directory, props.project?.id, branch) ?? name
   })
   const open = createMemo(() => props.ctx.workspaceExpanded(props.directory, local()))
   const boot = createMemo(() => open() || active())
@@ -358,7 +358,7 @@ export const SortableWorkspace = (props: {
       InlineEditor={props.ctx.InlineEditor}
       renameWorkspace={props.ctx.renameWorkspace}
       setEditor={props.ctx.setEditor}
-      projectId={props.project.id}
+      projectId={props.project?.id}
     />
   )
 

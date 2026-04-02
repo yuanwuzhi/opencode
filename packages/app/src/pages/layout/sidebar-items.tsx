@@ -25,7 +25,7 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
   const globalSync = useGlobalSync()
   const notification = useNotification()
   const permission = usePermission()
-  const dirs = createMemo(() => [props.project.worktree, ...(props.project.sandboxes ?? [])])
+  const dirs = createMemo(() => [props.project?.worktree, ...(props.project?.sandboxes ?? [])].filter(Boolean) as string[])
   const unseenCount = createMemo(() =>
     dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
   )
@@ -37,7 +37,7 @@ export const ProjectIcon = (props: { project: LocalProject; class?: string; noti
     }),
   )
   const notify = createMemo(() => props.notify && (hasPermissions() || unseenCount() > 0))
-  const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
+  const name = createMemo(() => props.project?.name || getFilename(props.project?.worktree ?? "") || "")
   return (
     <div class={`relative size-8 shrink-0 rounded ${props.class ?? ""}`}>
       <div class="size-full rounded overflow-clip">

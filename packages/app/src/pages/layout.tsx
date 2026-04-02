@@ -562,29 +562,34 @@ export default function Layout(props: ParentProps) {
     element.scrollIntoView({ block: "nearest", behavior: "smooth" })
   }
 
-  const currentProject = createMemo(() => {
-    const directory = currentDir()
-    if (!directory) return
-    const key = workspaceKey(directory)
+  const currentProject = (() => {
+    let lastValid: LocalProject | undefined
+    return createMemo(() => {
+      const directory = currentDir()
+      if (!directory) return lastValid
+      const key = workspaceKey(directory)
 
-    const projects = layout.projects.list()
+      const projects = layout.projects.list()
 
-    const sandbox = projects.find((p) => p.sandboxes?.some((item) => workspaceKey(item) === key))
-    if (sandbox) return sandbox
+      const sandbox = projects.find((p) => p.sandboxes?.some((item) => workspaceKey(item) === key))
+      if (sandbox) { lastValid = sandbox; return sandbox }
 
-    const direct = projects.find((p) => workspaceKey(p.worktree) === key)
-    if (direct) return direct
+      const direct = projects.find((p) => workspaceKey(p.worktree) === key)
+      if (direct) { lastValid = direct; return direct }
 
-    const [child] = globalSync.child(directory, { bootstrap: false })
-    const id = child.project
-    if (!id) return
+      const [child] = globalSync.child(directory, { bootstrap: false })
+      const id = child.project
+      if (!id) return lastValid
 
-    const meta = globalSync.data.project.find((p) => p.id === id)
-    const root = meta?.worktree
-    if (!root) return
+      const meta = globalSync.data.project.find((p) => p.id === id)
+      const root = meta?.worktree
+      if (!root) return lastValid
 
-    return projects.find((p) => p.worktree === root)
-  })
+      const found = projects.find((p) => p.worktree === root)
+      if (found) { lastValid = found; return found }
+      return lastValid
+    })
+  })()
 
   const [autoselecting] = createResource(async () => {
     await ready.promise
@@ -2245,13 +2250,17 @@ export default function Layout(props: ParentProps) {
                       </Button>
                     </div>
                     <div class="flex-1 min-h-0">
-                      <LocalWorkspace
-                        ctx={workspaceSidebarCtx}
-                        project={project()!}
-                        sortNow={sortNow}
-                        mobile={panelProps.mobile}
-                        popover={popover()}
-                      />
+                      <Show when={project()}>
+                        {(p) => (
+                          <LocalWorkspace
+                            ctx={workspaceSidebarCtx}
+                            project={p()}
+                            sortNow={sortNow}
+                            mobile={panelProps.mobile}
+                            popover={popover()}
+                          />
+                        )}
+                      </Show>
                     </div>
                   </>
                 }
@@ -2288,16 +2297,20 @@ export default function Layout(props: ParentProps) {
                       >
                         <SortableProvider ids={workspaces()}>
                           <For each={workspaces()}>
-                            {(directory) => (
-                              <SortableWorkspace
-                                ctx={workspaceSidebarCtx}
-                                directory={directory}
-                                project={project()!}
-                                sortNow={sortNow}
-                                mobile={panelProps.mobile}
-                                popover={popover()}
-                              />
-                            )}
+                            {(directory) => {
+                              const p = project()
+                              if (!p) return null
+                              return (
+                                <SortableWorkspace
+                                  ctx={workspaceSidebarCtx}
+                                  directory={directory}
+                                  project={p}
+                                  sortNow={sortNow}
+                                  mobile={panelProps.mobile}
+                                  popover={popover()}
+                                />
+                              )
+                            }}
                           </For>
                         </SortableProvider>
                       </div>

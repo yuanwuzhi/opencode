@@ -23,6 +23,36 @@ import { normalizeBasePath, rewriteCssForBasePath, rewriteHtmlForBasePath, rewri
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
 
+const embeddedUIPromise = Flag.OPENCODE_DISABLE_EMBEDDED_WEB_UI
+  ? Promise.resolve(null)
+  : // @ts-expect-error - generated file at build time
+    import("opencode-web-ui.gen.ts").then((module) => module.default as Record<string, string>).catch(() => null)
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".gif": "image/gif",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".map": "application/json",
+  ".wasm": "application/wasm",
+}
+
+function getMimeType(path: string): string {
+  const ext = path.substring(path.lastIndexOf(".")).toLowerCase()
+  return MIME_TYPES[ext] || "application/octet-stream"
+}
+
 initProjectors()
 
 export namespace Server {
@@ -342,6 +372,37 @@ export namespace Server {
 
         if (isControlPlane) {
           return mainApp.fetch(rewrittenRequest, c.env)
+        }
+
+        const embeddedWebUI = await embeddedUIPromise
+        if (embeddedWebUI) {
+          const assetKey = path.replace(/^\//, "")
+          const match = embeddedWebUI[assetKey] ?? embeddedWebUI["index.html"] ?? null
+          if (match) {
+            const file = Bun.file(match)
+            if (await file.exists()) {
+              const contentType = getMimeType(assetKey || "index.html")
+              const headers = new Headers()
+              headers.set("Content-Type", contentType)
+
+              if (contentType.includes("text/html")) {
+                const html = rewriteHtmlForBasePath(await file.text(), _basePath)
+                return new Response(html, { status: 200, headers })
+              }
+
+              if (contentType.includes("javascript") || assetKey.endsWith(".js")) {
+                const js = rewriteJsForBasePath(await file.text(), _basePath)
+                return new Response(js, { status: 200, headers })
+              }
+
+              if (contentType.includes("text/css") || assetKey.endsWith(".css")) {
+                const css = rewriteCssForBasePath(await file.text(), _basePath)
+                return new Response(css, { status: 200, headers })
+              }
+
+              return new Response(await file.arrayBuffer(), { status: 200, headers })
+            }
+          }
         }
 
         const response = await proxy(`https://app.opencode.ai${path}`, {
