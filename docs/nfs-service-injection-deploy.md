@@ -8,19 +8,7 @@
 ## 1. 架构概览
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  NFS Server (e.g. 192.168.3.38)                         │
-│  /data/nfs/VM/.d2vm/                                    │
-│  ├── scripts/       # 启动脚本 (entrypoint + helpers)   │
-│  └── services/      # 静态二进制 (~740MB)               │
-│      ├── opencode/amd64/opencode     # 166MB            │
-│      ├── code-server/amd64/          # 492MB            │
-│      ├── TigerVNC/amd64/             # 33MB             │
-│      ├── noVNC/                      # 3MB              │
-│      ├── websocat/amd64/             # 7.5MB            │
-│      └── uv/amd64/                   # 42MB             │
-└─────────────────────────────────────────────────────────┘
-              │ NFS mount (read-only)
+              │ Traefik Ingress
               ▼
 ┌─────────────────────────────────────────────────────────┐
 │  K8s Pod (任意容器镜像)                                  │
@@ -62,7 +50,7 @@
 | NFS 服务器 | 任意 Linux 节点，支持 NFSv4，有足够存储 (~1GB) |
 | K8s 集群 | 需能挂载 NFS PV/PVC 或 `nfs` 类型 volume |
 | 构建环境 (可选) | 仅在需要构建 OpenCode fork 时需要：Linux x86_64 + Bun ≥ 1.1 |
-| 反向代理 | Caddy / Nginx / Ingress Controller，支持 path-based 路由和 WebSocket |
+| 反向代理 | Traefik Ingress Controller (或兼容的 Ingress Controller)，支持 path-based 路由和 WebSocket |
 
 ---
 
@@ -239,59 +227,186 @@ containers:
 
 ---
 
-## 5. 反向代理 / Ingress 配置
+## 5. 反向代理 / Ingress 配置 (Traefik)
 
 所有服务通过 path-based 路由暴露，URL 格式固定为 `/{service}/{JOB_NAME}/`。
+平台后端为每个 Job 动态创建对应的 Ingress + Middleware 资源。
 
-### 5.1 Caddy 配置示例
+以下示例基于实际运行的 Traefik Ingress Controller 配置。`{JOB_NAME}` 为 Job 哈希 ID (如 `fecca7a7`)。
 
-```caddyfile
-# 假设域名: dev.example.com
-# Pod 通过 K8s Service 暴露，或直接用 Pod IP
+### 5.1 Jupyter — 无 stripPrefix (base_url 内部处理)
 
-dev.example.com {
-    # Jupyter
-    handle_path /jupyter/{job_name}/* {
-        reverse_proxy {upstream}:8888 {
-            header_up X-Real-IP {remote_host}
-        }
-    }
-
-    # VNC (noVNC) — 需要 WebSocket 支持
-    handle_path /vnc/{job_name}/* {
-        reverse_proxy {upstream}:5099 {
-            header_up X-Real-IP {remote_host}
-        }
-    }
-
-    # code-server
-    handle_path /code-server/{job_name}/* {
-        reverse_proxy {upstream}:8443 {
-            header_up X-Real-IP {remote_host}
-        }
-    }
-
-    # OpenCode Web — 需要 WebSocket 支持
-    handle /opencode/{job_name}/* {
-        # 注意: OpenCode 使用 --base-path，不要 strip prefix
-        reverse_proxy {upstream}:8172 {
-            header_up X-Real-IP {remote_host}
-        }
-    }
-}
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jupyter-{JOB_NAME}
+  namespace: haios
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  ingressClassName: traefik
+  rules:
+  - http:
+      paths:
+      - path: /jupyter/{JOB_NAME}/
+        pathType: Prefix
+        backend:
+          service:
+            name: job-ports-{JOB_NAME}
+            port:
+              number: 8888
 ```
 
-### 5.2 关键注意事项
+> Jupyter 通过 `--ServerApp.base_url=/jupyter/{JOB_NAME}/` 启动参数内部处理路径前缀，**不需要 stripPrefix**。
 
-| 服务 | Path Strip | WebSocket | 认证方式 |
-|------|-----------|-----------|----------|
-| Jupyter | ❌ 不 strip (base_url 已配置) | ✅ 需要 | Token/Password |
-| VNC | ❌ 不 strip | ✅ **必须** (WebSocket 连接 VNC) | VNC Password |
-| code-server | ✅ strip prefix | ✅ 需要 | Password (config.yaml) |
-| OpenCode | ❌ **绝不 strip** (--base-path 处理) | ✅ **必须** (SSE/realtime) | HTTP Basic Auth |
+### 5.2 VNC (noVNC) — 需要 stripPrefix
 
-> **OpenCode 特别注意**: `--base-path /opencode/{JOB_NAME}/` 已内建在二进制中处理路径前缀。
-> 反向代理**不能** strip path，否则 API 路由会断裂。
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vnc-{JOB_NAME}
+  namespace: haios
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.middlewares: haios-vnc-strip-{JOB_NAME}@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+  - http:
+      paths:
+      - path: /vnc/{JOB_NAME}/
+        pathType: Prefix
+        backend:
+          service:
+            name: job-ports-{JOB_NAME}
+            port:
+              number: 5099
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: vnc-strip-{JOB_NAME}
+  namespace: haios
+spec:
+  stripPrefix:
+    prefixes:
+    - /vnc/{JOB_NAME}
+```
+
+> noVNC 默认在 `/` 下提供服务，无法配置 base path，因此需要 Traefik `stripPrefix` 中间件。
+> WebSocket 连接是 VNC 的核心传输方式，**必须确保 Traefik 正确代理 WebSocket**。
+
+### 5.3 code-server — 需要 stripPrefix
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-server-{JOB_NAME}
+  namespace: haios
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.middlewares: haios-code-server-strip-{JOB_NAME}@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+  - http:
+      paths:
+      - path: /code-server/{JOB_NAME}/
+        pathType: Prefix
+        backend:
+          service:
+            name: job-ports-{JOB_NAME}
+            port:
+              number: 8443
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: code-server-strip-{JOB_NAME}
+  namespace: haios
+spec:
+  stripPrefix:
+    prefixes:
+    - /code-server/{JOB_NAME}
+```
+
+> code-server 期望在 `/` 路径下运行，不支持原生 base path 配置，需要 `stripPrefix`。
+
+### 5.4 OpenCode Web — 无 stripPrefix (--base-path 内部处理)
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opencode-{JOB_NAME}
+  namespace: haios
+  annotations:
+    kubernetes.io/ingress.class: traefik
+spec:
+  ingressClassName: traefik
+  rules:
+  - http:
+      paths:
+      - path: /opencode/{JOB_NAME}/
+        pathType: Prefix
+        backend:
+          service:
+            name: job-ports-{JOB_NAME}
+            port:
+              number: 8172
+```
+
+> ⚠️ **OpenCode 绝不能使用 stripPrefix**。`--base-path /opencode/{JOB_NAME}/` 启动参数让 OpenCode
+> 在内部完整处理路径前缀（包括 API 路由、静态资源、SSE 连接）。添加 stripPrefix 会导致 API 路由断裂。
+
+### 5.5 每个 Job 的 Service (参考)
+
+平台后端为每个 Job 自动创建 `NodePort` 类型的 Service，聚合所有服务端口：
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: job-ports-{JOB_NAME}
+  namespace: haios
+spec:
+  type: NodePort
+  selector:
+    job-name: {JOB_NAME}     # 根据实际标签调整
+  ports:
+  - name: ssh
+    port: 22
+    targetPort: 22
+  - name: jupyter
+    port: 8888
+    targetPort: 8888
+  - name: vnc
+    port: 5099
+    targetPort: 5099
+  - name: code-server
+    port: 8443
+    targetPort: 8443
+  - name: opencode
+    port: 8172
+    targetPort: 8172
+```
+
+### 5.6 总结对照表
+
+| 服务 | stripPrefix | WebSocket | 原因 | 认证方式 |
+|------|:-----------:|:---------:|------|----------|
+| Jupyter | ❌ 不 strip | ✅ 需要 | `--base_url` 内部处理前缀 | Token / Password |
+| VNC (noVNC) | ✅ **需要** | ✅ **必须** | noVNC 不支持 base path | VNC Password |
+| code-server | ✅ **需要** | ✅ 需要 | code-server 不支持原生 base path | Password (config.yaml) |
+| OpenCode | ❌ **绝不 strip** | ✅ **必须** (SSE) | `--base-path` 内部处理前缀 | HTTP Basic Auth |
+
+> **Traefik 默认支持 WebSocket 代理**，无需额外配置。
+> 
+> `stripPrefix` Middleware 的引用格式为 `{namespace}-{middleware-name}@kubernetescrd`，
+> 例如 `haios-vnc-strip-fecca7a7@kubernetescrd`。
 
 ---
 
@@ -354,10 +469,12 @@ dev.example.com {
 - [ ] 根据需要设置 `ENABLE_*` 环境变量
 - [ ] 确保容器端口 (8888, 5099, 8443, 8172, 22) 通过 Service 暴露
 
-### Step 3: Ingress/代理
-- [ ] 配置反向代理规则 (参考第 5 节)
-- [ ] 确认 WebSocket 支持已启用 (VNC 和 OpenCode **必须**)
-- [ ] 确认 OpenCode 路径**不做** strip
+### Step 3: Traefik Ingress
+- [ ] 确保集群安装了 Traefik Ingress Controller 并支持 `traefik.io/v1alpha1` CRD
+- [ ] 为每个 Job 创建 4 个 Ingress 资源 (jupyter / vnc / code-server / opencode)，参考第 5 节
+- [ ] 为 VNC 和 code-server 创建对应的 `stripPrefix` Middleware
+- [ ] 确认 OpenCode 和 Jupyter 的 Ingress **没有** stripPrefix middleware
+- [ ] 确认 WebSocket 代理正常 (Traefik 默认支持，无需额外配置)
 
 ### Step 4: 验证
 - [ ] 创建测试容器，所有 `ENABLE_*` 设为 true
