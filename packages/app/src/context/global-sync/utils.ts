@@ -16,12 +16,15 @@ export function normalizeAgentList(input: unknown): Agent[] {
   return Object.values(input).filter(isAgent)
 }
 
-export function normalizeProviderList(input: ProviderListResponse): ProviderListResponse {
+export function normalizeProviderList(input: ProviderListResponse | undefined): ProviderListResponse {
+  const fallback: ProviderListResponse = { all: [], connected: [], default: {} }
+  if (!input || typeof input !== "object") return fallback
+  if (!Array.isArray(input.all)) return { ...fallback, ...input, all: [] }
   return {
     ...input,
     all: input.all.map((provider) => ({
       ...provider,
-      models: Object.fromEntries(Object.entries(provider.models).filter(([, info]) => info.status !== "deprecated")),
+      models: Object.fromEntries(Object.entries(provider.models ?? {}).filter(([, info]) => info.status !== "deprecated")),
     })),
   }
 }

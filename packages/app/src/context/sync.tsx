@@ -299,7 +299,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       const messages = await retry(() =>
         input.client.session.messages({ sessionID: input.sessionID, limit: input.limit, before: input.before }),
       )
-      const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
+      const items = (Array.isArray(messages.data) ? messages.data : []).filter((x) => !!x?.info?.id)
       const session = items.map((x) => x.info).sort((a, b) => cmp(a.id, b.id))
       const part = items.map((message) => ({ id: message.info.id, part: sortParts(message.parts) }))
       const cursor = messages.response.headers.get("x-next-cursor") ?? undefined
@@ -589,7 +589,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const [store, setStore] = globalSync.child(directory)
           setStore("limit", (x) => x + count)
           await client.session.list().then((x) => {
-            const sessions = (x.data ?? [])
+            const sessions = (Array.isArray(x.data) ? x.data : [])
               .filter((s) => !!s?.id)
               .sort((a, b) => cmp(a.id, b.id))
               .slice(0, store.limit)

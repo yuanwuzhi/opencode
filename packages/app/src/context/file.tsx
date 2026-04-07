@@ -196,7 +196,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
 
     const search = (query: string, dirs: "true" | "false") =>
       sdk.client.find.files({ query, dirs }).then(
-        (x) => (x.data ?? []).map(path.normalize),
+        (x) => (Array.isArray(x.data) ? x.data : []).map(path.normalize),
         () => [],
       )
 

@@ -98,7 +98,7 @@ export async function bootstrapGlobal(input: {
     () =>
       retry(() =>
         input.globalSDK.provider.list().then((x) => {
-          input.setGlobalStore("provider", normalizeProviderList(x.data!))
+          input.setGlobalStore("provider", normalizeProviderList(x.data))
         }),
       ),
   ]
@@ -260,9 +260,10 @@ export async function bootstrapDirectory(input: {
     () =>
       retry(() =>
         input.sdk.permission.list().then((x) => {
-          const ids = (x.data ?? []).map((perm) => perm?.sessionID).filter((id): id is string => !!id)
+          const data = Array.isArray(x.data) ? x.data : []
+          const ids = data.map((perm) => perm?.sessionID).filter((id): id is string => !!id)
           const grouped = groupBySession(
-            (x.data ?? []).filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID),
+            data.filter((perm): perm is PermissionRequest => !!perm?.id && !!perm.sessionID),
           )
           return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then(() =>
             batch(() => {
@@ -287,8 +288,9 @@ export async function bootstrapDirectory(input: {
     () =>
       retry(() =>
         input.sdk.question.list().then((x) => {
-          const ids = (x.data ?? []).map((question) => question?.sessionID).filter((id): id is string => !!id)
-          const grouped = groupBySession((x.data ?? []).filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID))
+          const data = Array.isArray(x.data) ? x.data : []
+          const ids = data.map((question) => question?.sessionID).filter((id): id is string => !!id)
+          const grouped = groupBySession(data.filter((q): q is QuestionRequest => !!q?.id && !!q.sessionID))
           return warmSessions({ ids, store: input.store, setStore: input.setStore, sdk: input.sdk }).then(() =>
             batch(() => {
               for (const sessionID of Object.keys(input.store.question)) {
@@ -349,7 +351,7 @@ export async function bootstrapDirectory(input: {
   void retry(() => input.sdk.provider.list())
     .then((x) => {
       if (providerRev.get(input.directory) !== rev) return
-      input.setStore("provider", normalizeProviderList(x.data!))
+      input.setStore("provider", normalizeProviderList(x.data))
       input.setStore("provider_ready", true)
     })
     .catch((err) => {

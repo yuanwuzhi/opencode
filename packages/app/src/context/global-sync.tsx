@@ -204,7 +204,8 @@ function createGlobalSync() {
       list: (query) => globalSDK.client.session.list(query),
     })
       .then((x) => {
-        const nonArchived = (x.data ?? [])
+        const rawData = Array.isArray(x.data) ? x.data : []
+        const nonArchived = rawData
           .filter((s) => !!s?.id)
           .filter((s) => !s.time?.archived)
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
