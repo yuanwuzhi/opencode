@@ -30,7 +30,7 @@
 │    8172  → OpenCode Web                                  │
 │    22    → SSH                                           │
 └─────────────────────────────────────────────────────────┘
-              │ Ingress / Caddy reverse proxy
+              │ Traefik Ingress (path-based routing)
               ▼
 ┌─────────────────────────────────────────────────────────┐
 │  用户浏览器访问:                                         │
@@ -56,41 +56,106 @@
 
 ## 3. 准备 NFS 共享目录
 
-### 3.1 创建目录结构
+所有服务二进制和启动脚本打包在 `d2vm-services` Docker 镜像中，托管在 Harbor：
 
-```bash
-NFS_ROOT="/data/nfs/VM"  # 改成你的 NFS 导出路径
-mkdir -p ${NFS_ROOT}/.d2vm/{scripts,services}
+```
+harbor.yuanwuzhi.io/library/d2vm-services:<版本号>
 ```
 
-### 3.2 使用自动化脚本填充 (推荐)
+> 镜像内容为纯文件（非可运行容器），通过 `crane export` 解压到 NFS 即可使用。
 
-`setup-share-services.sh` 可自动下载并解压大部分服务二进制：
+### 3.1 全新部署
+
+首次在新集群搭建时，需要完整部署 `.d2vm/` 目录。提供三种方式，按需选择：
+
+#### 方式一：Ansible Role（推荐，多集群管理）
+
+适合已有 Ansible 基础设施的环境。D2VM-ansible 仓库提供了 `d2vm_services` role，支持在线/离线两种模式。
 
 ```bash
-# 在 NFS 服务器上执行
-bash setup-share-services.sh
+# 在线模式 — 从 Harbor 拉取
+ansible-playbook -i inventory/hosts playbooks/deploy_d2vm_services.yml \
+  -e d2vm_services_version=v1.1
+
+# 离线模式 — 从本地 tar.gz 部署
+ansible-playbook -i inventory/hosts playbooks/deploy_d2vm_services.yml \
+  -e d2vm_services_mode=offline \
+  -e d2vm_services_tar_file=/path/to/d2vm-services-v1.1.tar.gz
 ```
 
-该脚本处理以下服务的自动下载：
-- **code-server**: 从 GitHub Releases 下载，自动检测 amd64/arm64
-- **TigerVNC**: 从 GitHub Releases 下载并解压
-- **noVNC**: 从 GitHub Releases 下载
-- **websocat**: 从 GitHub Releases 下载
-- **uv** (Python 包管理器): 从 GitHub Releases 下载
+Role 默认配置见 `roles/d2vm_services/defaults/main.yml`：
 
-### 3.3 构建 OpenCode (fork 版本)
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `d2vm_services_registry` | `harbor.yuanwuzhi.io` | Harbor 地址 |
+| `d2vm_services_version` | `v1.0` | 镜像版本标签 |
+| `d2vm_services_dest` | `{{ nfs_root }}/VM/.d2vm` | NFS 目标路径 |
+| `d2vm_services_mode` | `online` | `online` (crane) 或 `offline` (tar) |
+| `d2vm_services_skip_login` | `false` | 跳过 Harbor 登录 |
 
-OpenCode 使用了自定义 fork (`yuanwuzhi/opencode`, branch `feature/base-path-support`)，
-增加了 `--base-path` 支持以适配反向代理部署。**必须手动构建**。
+#### 方式二：部署脚本（轻量，单机快速部署）
+
+不依赖 Ansible，直接在 NFS 服务器上运行一条脚本：
+
+```bash
+# 在线 — 从 Harbor 拉取（需要 crane，脚本会自动安装）
+bash deploy-d2vm-services.sh --version v1.1 --harbor-user admin
+
+# 离线 — 从 tar.gz 文件
+bash deploy-d2vm-services.sh --from-tar /tmp/d2vm-services-v1.1.tar.gz
+
+# 自定义 NFS 路径
+bash deploy-d2vm-services.sh --nfs-root /data/nfs/VM --version v1.1 --skip-login
+```
+
+脚本自动处理：crane 安装、Harbor 登录、镜像拉取解压、权限设置、文件验证。
+
+> 脚本位于 D2VM-ansible 仓库 `scripts/deploy-d2vm-services.sh`。
+
+#### 方式三：手动部署
+
+适合了解细节或需要逐步调试的场景。
+
+```bash
+NFS_ROOT="/data/nfs/VM"
+
+# 1. 安装 crane (如果没有)
+curl -sL https://github.com/google/go-containerregistry/releases/download/v0.21.3/go-containerregistry_Linux_x86_64.tar.gz \
+  | tar xz -C /tmp/ crane
+
+# 2. 登录 Harbor (如果需要)
+/tmp/crane auth login harbor.yuanwuzhi.io -u admin
+
+# 3. 拉取镜像并解压
+tmpdir=$(mktemp -d)
+/tmp/crane export harbor.yuanwuzhi.io/library/d2vm-services:v1.1 - | tar xf - -C "$tmpdir"
+
+# 4. 同步到 NFS
+mkdir -p ${NFS_ROOT}/.d2vm
+rsync -a "$tmpdir/.d2vm/" ${NFS_ROOT}/.d2vm/
+rm -rf "$tmpdir"
+
+# 5. 设置权限
+chmod +x ${NFS_ROOT}/.d2vm/scripts/*.sh
+chmod +x ${NFS_ROOT}/.d2vm/services/opencode/amd64/opencode
+chmod +x ${NFS_ROOT}/.d2vm/services/code-server/amd64/bin/code-server
+chmod +x ${NFS_ROOT}/.d2vm/services/TigerVNC/amd64/usr/bin/Xvnc
+chmod +x ${NFS_ROOT}/.d2vm/services/websocat/amd64/websocat
+chmod +x ${NFS_ROOT}/.d2vm/services/uv/amd64/uv
+```
+
+#### 构建 OpenCode（仅开发者需要）
+
+日常部署**不需要**手动构建 OpenCode —— 镜像中已包含构建好的二进制。
+
+仅在需要修改 OpenCode fork 代码后重新构建时使用：
 
 ```bash
 # 1. 克隆 fork
 git clone -b feature/base-path-support https://github.com/yuanwuzhi/opencode.git /tmp/opencode-fork
 
 # 2. 安装依赖 (需要 Bun >= 1.1)
-cd /tmp/opencode-fork
-bun install
+cd /tmp/opencode-fork && bun install
 
 # 3. 缓存 models.dev API JSON (构建时需要，直接 fetch 可能不稳定)
 curl -o /tmp/models-api.json https://models.dev/api.json
@@ -100,26 +165,50 @@ cd packages/opencode
 MODELS_DEV_API_JSON=/tmp/models-api.json bun run script/build.ts --single --skip-install
 # 注意: 不要加 --skip-embed-web-ui，前端必须打包进二进制
 
-# 5. 部署到 NFS
+# 5. 部署到 NFS (替换镜像中的版本)
 cp dist/opencode-linux-x64/bin/opencode ${NFS_ROOT}/.d2vm/services/opencode/amd64/opencode
 chmod +x ${NFS_ROOT}/.d2vm/services/opencode/amd64/opencode
 ```
 
 > **注意**: 当前 OpenCode 仅支持 x86_64 (amd64)。arm64 架构会被启动脚本跳过。
 
-### 3.4 部署脚本
+### 3.2 版本升级
 
-将以下脚本复制到 `${NFS_ROOT}/.d2vm/scripts/`：
+已有 `.d2vm/` 目录的环境从 v1.x 升到新版本，有两种方式：
 
-| 脚本 | 作用 | 必需 |
-|------|------|------|
-| `base_cmd_test.sh` | 容器入口脚本，启动 SSH + 各服务 | ✅ |
-| `set_password.sh` | Jupyter + VNC 启动与密码配置 | ✅ |
-| `jupyter_passwd_expect.sh` | Jupyter 密码设置 (expect) | ✅ (if Jupyter) |
-| `vnc_passwd_expect.sh` | VNC 密码设置 (expect) | ✅ (if VNC) |
-| `setup-share-services.sh` | NFS 目录填充脚本 | 仅首次 |
+#### 整体覆盖升级（推荐）
 
-### 3.5 导出 NFS 共享
+用新版本镜像整体覆盖，最简单可靠：
+
+```bash
+# 脚本方式 (一条命令)
+bash deploy-d2vm-services.sh --version v1.1 --skip-login
+
+# 或手动 crane
+tmpdir=$(mktemp -d)
+/tmp/crane export harbor.yuanwuzhi.io/library/d2vm-services:v1.1 - | tar xf - -C "$tmpdir"
+rsync -a "$tmpdir/.d2vm/" /data/nfs/VM/.d2vm/
+rm -rf "$tmpdir"
+chmod +x /data/nfs/VM/.d2vm/scripts/*.sh
+```
+
+#### 最小化升级（仅替换变更文件）
+
+如果清楚版本间的差异，可以只替换变更的文件。参考下方版本变更日志确定需要替换哪些文件。
+
+例如 v1.0 → v1.1 仅 OpenCode 二进制有变化：
+
+```bash
+# 直接 scp 替换单个文件
+scp opencode root@<NFS_SERVER>:/data/nfs/VM/.d2vm/services/opencode/amd64/opencode
+ssh root@<NFS_SERVER> "chmod +x /data/nfs/VM/.d2vm/services/opencode/amd64/opencode"
+```
+
+> ⚠️ 升级后需要**新开容器**才能生效。已运行的容器使用的是启动时加载的旧版本。
+
+### 3.3 导出 NFS 共享
+
+首次部署时需要配置 NFS 导出：
 
 ```bash
 # /etc/exports 添加:
@@ -130,7 +219,7 @@ exportfs -ra
 systemctl restart nfs-server
 ```
 
-### 3.6 最终目录结构验证
+### 3.4 目录结构参考
 
 ```
 .d2vm/
@@ -138,8 +227,7 @@ systemctl restart nfs-server
 │   ├── base_cmd_test.sh          # 容器入口点
 │   ├── set_password.sh           # Jupyter/VNC 启动
 │   ├── jupyter_passwd_expect.sh
-│   ├── vnc_passwd_expect.sh
-│   └── setup-share-services.sh   # NFS 填充脚本 (可选保留)
+│   └── vnc_passwd_expect.sh
 └── services/
     ├── code-server/
     │   └── amd64/bin/code-server
@@ -436,6 +524,8 @@ spec:
 
 ### 6.2 Git Commits (按时间顺序)
 
+**v1.0 — 初始 base-path 支持:**
+
 ```
 79696cf feat: add --base-path support for reverse proxy deployments
 98ff243 fix: rewrite SDK default client baseUrl for first-load compatibility
@@ -445,7 +535,31 @@ spec:
 904006d refactor: remove dead joinPath code and add CSP headers to base-path mode
 ```
 
-### 6.3 已知限制
+**v1.1 — CSP 根因修复 + 稳定性:**
+
+```
+7c47703 fix: guard against non-array API responses in session/provider loading
+323c6c7 fix: comprehensive safeArray guard for all SDK API responses
+07a9f0e fix: guard session.time access with optional chaining
+6150c43 fix: resolve CSP hash mismatch, provider retry, and worktree guard for base-path mode
+```
+
+### 6.3 版本变更日志
+
+#### d2vm-services v1.1 (相对于 v1.0)
+
+**变更范围**: 仅 OpenCode 二进制更新，其他服务 (code-server, TigerVNC, noVNC 等) 无变化。
+
+**升级方式**: 替换 `services/opencode/amd64/opencode` 即可（参考 3.2 节最小化升级）。
+
+| 修复项 | 说明 |
+|--------|------|
+| **CSP SHA-256 hash 不匹配** | `generateBasePathScript()` 生成的 inline script 带有前导换行符，旧版 hash 计算忽略了这个换行，导致浏览器 CSP 静默拦截 `__OPENCODE_BASE_PATH__` 脚本。改为解析最终 HTML 中所有 inline script 内容计算 hash。**这是 v1.0 中首次加载白屏/功能异常的根因**。 |
+| **Provider 列表为空** | `retry()` 默认只重试网络错误，自定义 "Empty provider list" 异常不会触发重试。改为 `retryIf: () => true` 重试所有错误。 |
+| **worktree 空指针崩溃** | 非 git 目录下 `worktree` 可能为 undefined，`.replace()` / `.filter()` 调用崩溃。添加 `?.` 可选链保护。 |
+| **时间戳显示 "56年前"** | `session.time` 可能为 undefined，`formatDistanceToNow(undefined)` 返回 1970 年距今的时间差。添加 `?.` 保护和 fallback。 |
+
+### 6.4 已知限制
 
 - **仅 amd64**: Bun 单文件二进制当前只构建 x86_64 版本
 - **非 git 目录**: OpenCode 在非 git 目录下功能受限 (无 diff/blame 等 VCS 功能)
@@ -456,12 +570,29 @@ spec:
 ## 7. 复制到新集群的检查清单
 
 ### Step 1: NFS 准备
-- [ ] 新集群的节点可以访问 NFS 服务器 (或搭建本地 NFS)
-- [ ] 复制整个 `.d2vm/` 目录到新 NFS 服务器 (约 740MB)
+
+**方式 A — Ansible (推荐):**
+- [ ] 在 D2VM-ansible 的 inventory 中添加新集群的 NFS 节点
+- [ ] 运行部署:
   ```bash
-  rsync -avz --progress root@源NFS:data/nfs/VM/.d2vm/ /data/nfs/VM/.d2vm/
+  ansible-playbook -i inventory/hosts-<新集群> playbooks/deploy_d2vm_services.yml \
+    -e d2vm_services_version=v1.1
   ```
-- [ ] 设置脚本可执行权限: `chmod +x /.d2vm/scripts/*.sh`
+
+**方式 B — 脚本:**
+- [ ] 将 `scripts/deploy-d2vm-services.sh` 复制到新集群的 NFS 服务器
+- [ ] 运行: `bash deploy-d2vm-services.sh --version v1.1 --harbor-user admin`
+
+**方式 C — rsync 从现有集群复制:**
+- [ ] 直接从已部署的 NFS 服务器同步 (约 740MB):
+  ```bash
+  rsync -avz --progress root@源NFS:/data/nfs/VM/.d2vm/ /data/nfs/VM/.d2vm/
+  chmod +x /data/nfs/VM/.d2vm/scripts/*.sh
+  ```
+
+**通用:**
+- [ ] 配置 NFS 导出 (`/etc/exports`) 并重启 nfs-server
+- [ ] 确认 K8s 节点可挂载 NFS
 
 ### Step 2: K8s 配置
 - [ ] 创建 NFS PV/PVC 或在 Pod spec 中直接使用 nfs volume
