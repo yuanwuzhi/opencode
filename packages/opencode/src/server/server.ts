@@ -18,7 +18,7 @@ import { lazy } from "@/util/lazy"
 import { errorHandler } from "./middleware"
 import { InstanceRoutes } from "./instance"
 import { initProjectors } from "./projectors"
-import { normalizeBasePath, rewriteCssForBasePath, rewriteHtmlForBasePath, rewriteJsForBasePath, generateBasePathScript } from "../util/base-path"
+import { normalizeBasePath, rewriteCssForBasePath, rewriteHtmlForBasePath, rewriteJsForBasePath } from "../util/base-path"
 import { createHash } from "node:crypto"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
@@ -54,12 +54,23 @@ function getMimeType(path: string): string {
   return MIME_TYPES[ext] || "application/octet-stream"
 }
 
-function basePathCSP(basePath: string): string {
-  const scriptContent = generateBasePathScript(basePath)
-    .replace(/^<script>\n?/, "")
-    .replace(/<\/script>$/, "")
-  const hash = createHash("sha256").update(scriptContent).digest("base64")
-  return `default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-${hash}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
+function basePathCSP(html: string, basePath: string): string {
+  // Compute SHA-256 hashes for ALL inline scripts in the rewritten HTML
+  // so CSP doesn't block any of them (theme preload, base-path injection, etc.)
+  const scriptRegex = /<script(?:\s[^>]*)?>([^]*?)<\/script>/gi
+  const hashes: string[] = []
+  let match
+  while ((match = scriptRegex.exec(html)) !== null) {
+    const tag = match[0]
+    // Skip external scripts (those with src="...")
+    if (/\ssrc\s*=/i.test(tag.slice(0, tag.indexOf(">")))) continue
+    const content = match[1]
+    if (!content.trim()) continue
+    const hash = createHash("sha256").update(content).digest("base64")
+    hashes.push(`'sha256-${hash}'`)
+  }
+  const scriptSrc = `'self' 'wasm-unsafe-eval' ${hashes.join(" ")}`
+  return `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data:`
 }
 
 initProjectors()
@@ -343,6 +354,29 @@ export namespace Server {
 
     if (_basePath) {
       const basePathHandler = async (c: Context) => {
+        // Enforce Basic Auth on ALL requests (including static assets) in base-path mode.
+        // This ensures the browser sees 401+WWW-Authenticate on the initial HTML load
+        // and prompts with a native credential dialog, so subsequent API requests
+        // automatically carry the Authorization header.
+        const password = Flag.OPENCODE_SERVER_PASSWORD
+        if (password && c.req.method !== "OPTIONS") {
+          const authHeader = c.req.header("Authorization")
+          if (!authHeader || !authHeader.startsWith("Basic ")) {
+            return new Response("Unauthorized", {
+              status: 401,
+              headers: { "WWW-Authenticate": 'Basic realm="Secure Area"' },
+            })
+          }
+          const username = Flag.OPENCODE_SERVER_USERNAME ?? "opencode"
+          const expected = Buffer.from(`${username}:${password}`).toString("base64")
+          if (authHeader.slice(6) !== expected) {
+            return new Response("Unauthorized", {
+              status: 401,
+              headers: { "WWW-Authenticate": 'Basic realm="Secure Area"' },
+            })
+          }
+        }
+
         let path = c.req.path
         if (path.startsWith(_basePath)) {
           path = path.slice(_basePath.length) || "/"
@@ -396,7 +430,7 @@ export namespace Server {
 
               if (contentType.includes("text/html")) {
                 const html = rewriteHtmlForBasePath(await file.text(), _basePath)
-                headers.set("Content-Security-Policy", basePathCSP(_basePath))
+                headers.set("Content-Security-Policy", basePathCSP(html, _basePath))
                 return new Response(html, { status: 200, headers })
               }
 
@@ -428,7 +462,7 @@ export namespace Server {
           const html = rewriteHtmlForBasePath(await response.text(), _basePath)
           const headers = new Headers(response.headers)
           headers.delete("content-length")
-          headers.set("Content-Security-Policy", basePathCSP(_basePath))
+          headers.set("Content-Security-Policy", basePathCSP(html, _basePath))
           return new Response(html, {
             status: response.status,
             statusText: response.statusText,

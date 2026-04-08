@@ -96,10 +96,14 @@ export async function bootstrapGlobal(input: {
         }),
       ),
     () =>
-      retry(() =>
-        input.globalSDK.provider.list().then((x) => {
-          input.setGlobalStore("provider", normalizeProviderList(x.data))
-        }),
+      retry(
+        () =>
+          input.globalSDK.provider.list().then((x) => {
+            const result = normalizeProviderList(x.data)
+            if (result.all.length === 0) throw new Error("Empty provider list")
+            input.setGlobalStore("provider", result)
+          }),
+        { attempts: 10, delay: 1000, retryIf: () => true },
       ),
   ]
 

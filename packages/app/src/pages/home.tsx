@@ -25,8 +25,9 @@ export default function Home() {
   const homedir = createMemo(() => sync.data.path.home)
   const recent = createMemo(() => {
     return sync.data.project
+      .filter((p) => p.worktree)
       .slice()
-      .sort((a, b) => (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0))
+      .sort((a, b) => (b.time?.updated ?? b.time?.created ?? Date.now()) - (a.time?.updated ?? a.time?.created ?? Date.now()))
       .slice(0, 5)
   })
 
@@ -101,11 +102,13 @@ export default function Home() {
                     size="large"
                     variant="ghost"
                     class="text-14-mono text-left justify-between px-3"
-                    onClick={() => openProject(project.worktree)}
+                    onClick={() => project.worktree && openProject(project.worktree)}
                   >
-                    {project.worktree.replace(homedir(), "~")}
+                    {project.worktree?.replace(homedir(), "~") ?? ""}
                     <div class="text-14-regular text-text-weak">
-                      {DateTime.fromMillis(project.time?.updated ?? project.time?.created ?? 0).toRelative()}
+                      {(project.time?.updated ?? project.time?.created)
+                        ? DateTime.fromMillis((project.time?.updated ?? project.time?.created)!).toRelative()
+                        : ""}
                     </div>
                   </Button>
                 )}

@@ -101,7 +101,8 @@ const getCurrentUrl = () => {
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
   if (import.meta.env.DEV)
     return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
-  return location.origin
+  const bp = (window as any).__OPENCODE_BASE_PATH__
+  return typeof bp === "string" && bp ? location.origin + bp : location.origin
 }
 
 const getDefaultUrl = () => {
@@ -125,6 +126,11 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
 }
 
+const getBasePath = (): string | undefined => {
+  const bp = (window as any).__OPENCODE_BASE_PATH__
+  return typeof bp === "string" && bp ? bp : undefined
+}
+
 if (root instanceof HTMLElement) {
   const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
   render(
@@ -135,6 +141,7 @@ if (root instanceof HTMLElement) {
             defaultServer={ServerConnection.Key.make(getDefaultUrl())}
             servers={[server]}
             disableHealthCheck
+            basePath={getBasePath()}
           />
         </AppBaseProviders>
       </PlatformProvider>

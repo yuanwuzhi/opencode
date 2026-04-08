@@ -27,9 +27,9 @@ export function normalizeAgentList(input: unknown): Agent[] {
 }
 
 export function normalizeProviderList(input: ProviderListResponse | undefined): ProviderListResponse {
-  const fallback: ProviderListResponse = { all: [], connected: [], default: {} }
-  if (!input || typeof input !== "object") return fallback
-  if (!Array.isArray(input.all)) return { ...fallback, ...input, all: [] }
+  if (!input || typeof input !== "object" || !Array.isArray(input.all)) {
+    return { all: [], connected: [], default: {} }
+  }
   return {
     ...input,
     all: input.all.map((provider) => ({
