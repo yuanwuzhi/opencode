@@ -289,8 +289,8 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
       for (const directory of dirs) {
         const sessions = sync.child(directory, { bootstrap: false })[0].session
         for (const session of sessions) {
-          if (session.time.archived) continue
-          const updated = session.time.updated ?? session.time.created
+          if (session.time?.archived) continue
+          const updated = session.time?.updated ?? session.time?.created ?? 0
           if (updated > at) at = updated
         }
       }

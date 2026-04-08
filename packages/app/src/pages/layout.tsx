@@ -1593,7 +1593,7 @@ export default function Layout(props: ParentProps) {
     const archivedAt = Date.now()
     await Promise.all(
       sessions
-        .filter((session) => session.time.archived === undefined)
+        .filter((session) => session.time?.archived === undefined)
         .map((session) =>
           globalSDK.client.session
             .update({
@@ -1699,7 +1699,7 @@ export default function Layout(props: ParentProps) {
         .list({ directory: props.directory })
         .then((x) => safeArray(x.data))
         .catch(() => [])
-      const active = sessions.filter((session) => session.time.archived === undefined)
+      const active = sessions.filter((session) => session.time?.archived === undefined)
       setState({ sessions: active })
     }
 

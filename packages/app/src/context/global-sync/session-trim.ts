@@ -3,7 +3,7 @@ import { cmp } from "./utils"
 import { SESSION_RECENT_LIMIT, SESSION_RECENT_WINDOW } from "./types"
 
 export function sessionUpdatedAt(session: Session) {
-  return session.time.updated ?? session.time.created
+  return session.time?.updated ?? session.time?.created ?? 0
 }
 
 export function compareSessionRecent(a: Session, b: Session) {
