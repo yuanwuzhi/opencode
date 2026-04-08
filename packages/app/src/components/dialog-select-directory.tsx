@@ -8,6 +8,7 @@ import fuzzysort from "fuzzysort"
 import { createMemo, createResource, createSignal } from "solid-js"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { safeArray } from "@/context/global-sync/utils"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
 
@@ -158,7 +159,7 @@ function useDirectorySearch(args: {
 
     const request = args.sdk.client.file
       .list({ directory: key, path: "" })
-      .then((x) => x.data ?? [])
+      .then((x) => safeArray(x.data))
       .catch(() => [])
       .then((nodes) =>
         nodes
@@ -194,7 +195,7 @@ function useDirectorySearch(args: {
     const find = () =>
       args.sdk.client.find
         .files({ directory: scopedInput.directory, query, type: "directory", limit: 50 })
-        .then((x) => x.data ?? [])
+        .then((x) => safeArray(x.data))
         .catch(() => [])
 
     if (!isPath) {

@@ -6,6 +6,7 @@ import { useParams } from "@solidjs/router"
 import { getFilename } from "@opencode-ai/util/path"
 import { useSDK } from "./sdk"
 import { useSync } from "./sync"
+import { safeArray } from "./global-sync/utils"
 import { useLanguage } from "@/context/language"
 import { useLayout } from "@/context/layout"
 import { createPathHelpers } from "./file/path"
@@ -73,7 +74,7 @@ export const { use: useFile, provider: FileProvider } = createSimpleContext({
     const tree = createFileTreeStore({
       scope,
       normalizeDir: path.normalizeDir,
-      list: (dir) => sdk.client.file.list({ path: dir }).then((x) => x.data ?? []),
+      list: (dir) => sdk.client.file.list({ path: dir }).then((x) => safeArray(x.data)),
       onError: (message) => {
         showToast({
           variant: "error",

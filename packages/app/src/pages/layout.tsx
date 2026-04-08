@@ -16,6 +16,7 @@ import { makeEventListener } from "@solid-primitives/event-listener"
 import { useNavigate, useParams } from "@solidjs/router"
 import { useLayout, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
+import { safeArray } from "@/context/global-sync/utils"
 import { Persist, persisted } from "@/utils/persist"
 import { base64Encode } from "@opencode-ai/util/encode"
 import { decode64 } from "@/utils/base64"
@@ -780,7 +781,7 @@ export default function Layout(props: ParentProps) {
             if (prefetchToken.value !== token) return
             if (!isSessionPrefetchCurrent(directory, sessionID, rev)) return
 
-            const items = (messages.data ?? []).filter((x) => !!x?.info?.id)
+            const items = safeArray(messages.data).filter((x) => !!x?.info?.id)
             const next = items.map((x) => x.info).filter((m): m is Message => !!m?.id)
             const sorted = mergeByID([], next)
             const stale = markPrefetched(directory, sessionID)
@@ -1297,7 +1298,7 @@ export default function Layout(props: ParentProps) {
       if (!target || target === root || canOpen(target)) return canOpen(target)
       const listed = await globalSDK.client.worktree
         .list({ directory: root })
-        .then((x) => x.data ?? [])
+        .then((x) => safeArray(x.data))
         .catch(() => [] as string[])
       dirs = effectiveWorkspaceOrder(root, [root, ...listed], store.workspaceOrder[root])
       return canOpen(target)
@@ -1343,7 +1344,7 @@ export default function Layout(props: ParentProps) {
           path: { directory: item },
           session: await globalSDK.client.session
             .list({ directory: item })
-            .then((x) => x.data ?? [])
+            .then((x) => safeArray(x.data))
             .catch(() => []),
         })),
       ),
@@ -1562,7 +1563,7 @@ export default function Layout(props: ParentProps) {
 
     const sessions: Session[] = await globalSDK.client.session
       .list({ directory })
-      .then((x) => x.data ?? [])
+      .then((x) => safeArray(x.data))
       .catch(() => [])
 
     clearWorkspaceTerminals(
@@ -1638,9 +1639,9 @@ export default function Layout(props: ParentProps) {
       globalSDK.client.file
         .status({ directory: props.directory })
         .then((x) => {
-          const files = x.data ?? []
-          const dirty = files.length > 0
-          setData({ status: "ready", dirty })
+           const files = safeArray(x.data)
+           const dirty = files.length > 0
+           setData({ status: "ready", dirty })
         })
         .catch(() => {
           setData({ status: "error", dirty: false })
@@ -1696,7 +1697,7 @@ export default function Layout(props: ParentProps) {
     const refresh = async () => {
       const sessions = await globalSDK.client.session
         .list({ directory: props.directory })
-        .then((x) => x.data ?? [])
+        .then((x) => safeArray(x.data))
         .catch(() => [])
       const active = sessions.filter((session) => session.time.archived === undefined)
       setState({ sessions: active })
@@ -1706,9 +1707,9 @@ export default function Layout(props: ParentProps) {
       globalSDK.client.file
         .status({ directory: props.directory })
         .then((x) => {
-          const files = x.data ?? []
-          const dirty = files.length > 0
-          setState({ status: "ready", dirty })
+           const files = safeArray(x.data)
+           const dirty = files.length > 0
+           setState({ status: "ready", dirty })
           void refresh()
         })
         .catch(() => {

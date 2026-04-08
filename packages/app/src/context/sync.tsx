@@ -10,6 +10,7 @@ import {
   setSessionPrefetch,
 } from "./global-sync/session-prefetch"
 import { useGlobalSync } from "./global-sync"
+import { safeArray } from "./global-sync/utils"
 import { useSDK } from "./sdk"
 import type { Message, Part } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
@@ -510,7 +511,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           return runInflight(inflightDiff, key, () =>
             retry(() => client.session.diff({ sessionID })).then((diff) => {
               if (!tracked(directory, sessionID)) return
-              setStore("session_diff", sessionID, reconcile(diff.data ?? [], { key: "file" }))
+              setStore("session_diff", sessionID, reconcile(safeArray(diff.data), { key: "file" }))
             }),
           )
         },
@@ -536,7 +537,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           return runInflight(inflightTodo, key, () =>
             retry(() => client.session.todo({ sessionID })).then((todo) => {
               if (!tracked(directory, sessionID)) return
-              const list = todo.data ?? []
+              const list = safeArray(todo.data)
               setStore("todo", sessionID, reconcile(list, { key: "id" }))
               globalSync.todo.set(sessionID, list)
             }),

@@ -14,6 +14,7 @@ import { usePlatform } from "@/context/platform"
 import { useSDK } from "@/context/sdk"
 import { normalizeServerUrl, ServerConnection, useServer } from "@/context/server"
 import { useSync } from "@/context/sync"
+import { safeArray } from "@/context/global-sync/utils"
 import { useCheckServerHealth, type ServerHealth } from "@/utils/server-health"
 
 const pollMs = 10_000
@@ -204,7 +205,7 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
       void sdk.client.lsp
         .status()
         .then((result) => {
-          sync.set("lsp", result.data ?? [])
+           sync.set("lsp", safeArray(result.data))
           sync.set("lsp_ready", true)
         })
         .catch((err) => {

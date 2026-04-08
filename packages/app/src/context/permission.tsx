@@ -5,6 +5,7 @@ import type { PermissionRequest } from "@opencode-ai/sdk/v2/client"
 import { Persist, persisted } from "@/utils/persist"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "./global-sync"
+import { safeArray } from "./global-sync/utils"
 import { useParams } from "@solidjs/router"
 import { decode64 } from "@/utils/base64"
 import {
@@ -182,7 +183,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
         .list({ directory })
         .then((x) => {
           if (!isAutoAcceptingDirectory(directory)) return
-          for (const perm of x.data ?? []) {
+          for (const perm of safeArray(x.data)) {
             if (!perm?.id) continue
             if (!shouldAutoRespond(perm, directory)) continue
             respondOnce(perm, directory)
@@ -215,7 +216,7 @@ export const { use: usePermission, provider: PermissionProvider } = createSimple
         .then((x) => {
           if (enableVersion.get(key) !== version) return
           if (!isAutoAccepting(sessionID, directory)) return
-          for (const perm of x.data ?? []) {
+          for (const perm of safeArray(x.data)) {
             if (!perm?.id) continue
             if (!shouldAutoRespond(perm, directory)) continue
             respondOnce(perm, directory)

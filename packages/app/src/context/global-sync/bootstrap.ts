@@ -16,7 +16,7 @@ import { retry } from "@opencode-ai/util/retry"
 import { batch } from "solid-js"
 import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
 import type { State, VcsCache } from "./types"
-import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
+import { cmp, normalizeAgentList, normalizeProviderList, safeArray } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -113,7 +113,7 @@ export async function bootstrapGlobal(input: {
     () =>
       retry(() =>
         input.globalSDK.project.list().then((x) => {
-          const projects = (x.data ?? [])
+          const projects = safeArray(x.data)
             .filter((p) => !!p?.id)
             .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
             .slice()
@@ -256,7 +256,7 @@ export async function bootstrapDirectory(input: {
           if (next?.branch) input.vcsCache.setStore("value", next)
         }),
       ),
-    () => retry(() => input.sdk.command.list().then((x) => input.setStore("command", x.data ?? []))),
+    () => retry(() => input.sdk.command.list().then((x) => input.setStore("command", safeArray(x.data)))),
     () =>
       retry(() =>
         input.sdk.permission.list().then((x) => {

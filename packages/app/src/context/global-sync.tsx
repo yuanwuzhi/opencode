@@ -24,7 +24,7 @@ import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
-import { sanitizeProject } from "./global-sync/utils"
+import { safeArray, sanitizeProject } from "./global-sync/utils"
 import { formatServerError } from "@/utils/server-errors"
 
 type GlobalStore = {
@@ -336,7 +336,7 @@ function createGlobalSync() {
         sdkFor(directory)
           .lsp.status()
           .then((x) => {
-            setStore("lsp", x.data ?? [])
+             setStore("lsp", safeArray(x.data))
             setStore("lsp_ready", true)
           })
       },

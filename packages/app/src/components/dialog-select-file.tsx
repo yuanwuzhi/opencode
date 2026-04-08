@@ -11,6 +11,7 @@ import { createMemo, createSignal, Match, onCleanup, Show, Switch } from "solid-
 import { formatKeybind, useCommand, type CommandOption } from "@/context/command"
 import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
+import { safeArray } from "@/context/global-sync/utils"
 import { useLayout } from "@/context/layout"
 import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
@@ -209,7 +210,7 @@ function createSessionEntries(props: {
         return props.globalSDK.client.session
           .list({ directory, roots: true })
           .then((x) =>
-            (x.data ?? [])
+            safeArray(x.data)
               .filter((s) => !!s?.id)
               .map((s) => ({
                 id: s.id,
